@@ -171,7 +171,7 @@ def main():
 
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-4",
+        model_name="gpt-4o",
         temperature=0
     )
 
