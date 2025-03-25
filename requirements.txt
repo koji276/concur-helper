@@ -6,4 +6,4 @@ dotenv
 langchain_openai
 langchain_pinecone
 langchain_community
-
+weaviate-client==4.11.3
