@@ -301,11 +301,12 @@ def main():
  if st.checkbox("表示する"):
      st.subheader("=== 概要のQ&A ===")
      for i, (q, a) in enumerate(st.session_state["summary_history"], start=1):
-         st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}\n---")
+         # "---"を削除 or 別のものに
+         st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}")
 
      st.subheader("=== 詳細のQ&A ===")
      for i, (q, a) in enumerate(st.session_state["detail_history"], start=1):
-         st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}\n---")
+         st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}")
 
 if __name__ == "__main__":
  main()
