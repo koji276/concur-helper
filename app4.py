@@ -248,7 +248,7 @@ def main():
      do_summary = st.form_submit_button("送信 (要約検索)")
      if do_summary and summary_question.strip():
          with st.spinner("要約インデックスを検索中..."):
-         with st.spinner("回答（概要）を作成中..."):
+           with st.spinner("回答（概要）を作成中..."):
              answer, meta = run_summary_chain(summary_question)
 
          # 履歴に保存
