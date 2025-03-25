@@ -67,7 +67,7 @@ custom_prompt = PromptTemplate(
 )
 
 def main():
-    st.title("Concur Helper - 要約&詳細 (コピペ版)")
+    st.title("Concur Helper - 開発者支援ボット")
 
     # --------------------------------------------------
     # セッション初期化
@@ -240,7 +240,7 @@ def main():
     # メイン画面 UI (2ステップ)
     # --------------------------------------------------
 
-    st.markdown("## Step1: 要約インデックスを使った概要検索")
+    st.markdown("## Step1: 概要検索")
     st.write("最初に大まかな質問をしてください。回答後、興味がある部分をコピーして下に貼り付けると詳細検索できます。")
 
     with st.form(key="summary_form"):
@@ -265,7 +265,7 @@ def main():
                 st.markdown(f"  **FullLink**: {link}")
             st.write("---")
 
-    st.markdown("## Step2: フルインデックスを使った詳細検索")
+    st.markdown("## Step2: 詳細検索")
     st.info("上記の回答から、詳しく知りたい部分(パラグラフやキーワード)をコピーして下欄に貼り付けてください。")
 
     with st.form(key="detail_form"):
