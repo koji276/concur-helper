@@ -4,31 +4,37 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from pinecone import Pinecone
+from datetime import datetime
 
-# LangChain の各種クラス
+# LangChain ライブラリ (pip install langchain_openai langchain_pinecone などが必要)
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 
-from datetime import datetime
-
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
+# --------------------------------------------------
+# APIキー・環境変数を読み込み
+# --------------------------------------------------
+OPENAI_API_KEY       = os.getenv("OPENAI_API_KEY", "")
+PINECONE_API_KEY     = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
-# 要約が格納されているインデックス
-SUMMARY_INDEX_NAME = "concur-index2"  # ① 要約インデックス
+# --------------------------------------------------
+# インデックスの定義:
+# 要約インデックス (概要回答用) / フルインデックス (詳細回答用)
+# --------------------------------------------------
+SUMMARY_INDEX_NAME = "concur-index2"  # 要約
 SUMMARY_NAMESPACE  = "demo-html"
 
-# フルドキュメントが格納されているインデックス
-FULL_INDEX_NAME = "concur-index"      # ② フル版インデックス
+FULL_INDEX_NAME = "concur-index"      # フル
 FULL_NAMESPACE  = "demo-html"
 
-# 参考: app3.pyにあるワークフロー関連定義 (必要に応じて継承)
+# --------------------------------------------------
+# 以前のプログラムと同様の設定 (ワークフロー系の例)
+# --------------------------------------------------
 WORKFLOW_GUIDES = [
     "ワークフロー（概要）(2023年10月14日版)",
     "ワークフロー（承認権限者）(2023年8月25日版)",
@@ -61,22 +67,24 @@ custom_prompt = PromptTemplate(
 )
 
 def main():
-    st.title("Concur Helper ‐ 要約・詳細二段階ボット")
+    st.title("Concur Helper - 要約&詳細 (コピペ版)")
 
-    # --- セッション初期化 ---
-    if "chat_messages" not in st.session_state:
-        st.session_state["chat_messages"] = []
-    if "history" not in st.session_state:
-        st.session_state["history"] = []
-    if "focus_guide" not in st.session_state:
-        st.session_state["focus_guide"] = "なし"
+    # --------------------------------------------------
+    # セッション初期化
+    # --------------------------------------------------
+    if "summary_history" not in st.session_state:
+        st.session_state["summary_history"] = []  # 要約の履歴
+    if "detail_history" not in st.session_state:
+        st.session_state["detail_history"] = []   # 詳細の履歴
 
-    # Pinecone 初期化
+    # --------------------------------------------------
+    # Pinecone 初期化 & VectorStore 準備
+    # --------------------------------------------------
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-
-    # ① 要約インデックスの VectorStore
-    sum_index = pc.Index(SUMMARY_INDEX_NAME)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
+
+    # 要約インデックス
+    sum_index = pc.Index(SUMMARY_INDEX_NAME)
     docsearch_summary = PineconeVectorStore(
         embedding=embeddings,
         index=sum_index,
@@ -84,7 +92,7 @@ def main():
         text_key="chunk_text"
     )
 
-    # ② フルインデックスの VectorStore
+    # フルインデックス
     full_index = pc.Index(FULL_INDEX_NAME)
     docsearch_full = PineconeVectorStore(
         embedding=embeddings,
@@ -93,8 +101,19 @@ def main():
         text_key="chunk_text"
     )
 
+    # --------------------------------------------------
+    # LangChain用 Chat LLM
+    # --------------------------------------------------
+    chat_llm = ChatOpenAI(
+        openai_api_key=OPENAI_API_KEY,
+        model_name="gpt-4",
+        temperature=0
+    )
+
+    # --------------------------------------------------
     # サイドバー
-    st.sidebar.header("ガイドのリスト（サンプル）")
+    # --------------------------------------------------
+    st.sidebar.header("設定ガイドのリスト")
     st.sidebar.markdown(
         """
         <a href="https://koji276.github.io/concur-docs/index.htm" target="_blank">
@@ -106,33 +125,33 @@ def main():
         unsafe_allow_html=True
     )
 
-    # 会話履歴のアップロード機能などは app3.py と同様
+    # フォーカスガイドの選択
+    st.sidebar.header("ガイドのフォーカス")
+    focus_guide_selected = st.sidebar.selectbox(
+        "特定のガイドにフォーカス",
+        options=["なし"] + WORKFLOW_GUIDES,
+        index=0
+    )
+
+    # 会話履歴の管理
     st.sidebar.header("会話履歴の管理")
     uploaded_file = st.sidebar.file_uploader("保存していた会話ファイルを選択 (.json)", type="json")
+
     if uploaded_file is not None:
         uploaded_content = uploaded_file.read()
         try:
             loaded_json = json.loads(uploaded_content)
-            st.session_state["chat_messages"] = loaded_json.get("chat_messages", [])
-            st.session_state["history"] = loaded_json.get("history", [])
-
-            # タプル化
-            new_history = []
-            for item in st.session_state["history"]:
-                if isinstance(item, list) and len(item) == 2:
-                    new_history.append(tuple(item))
-                else:
-                    new_history.append(item)
-            st.session_state["history"] = new_history
-
+            # 復元（今回は要約・詳細に分割せず、まとめて一括復元する場合）
+            st.session_state["summary_history"] = loaded_json.get("summary_history", [])
+            st.session_state["detail_history"] = loaded_json.get("detail_history", [])
             st.success("以前の会話履歴を復元しました！")
         except Exception as e:
             st.error(f"アップロードに失敗しました: {e}")
 
     def download_chat_history():
         data_to_save = {
-            "chat_messages": st.session_state["chat_messages"],
-            "history": st.session_state["history"]
+            "summary_history": st.session_state["summary_history"],
+            "detail_history": st.session_state["detail_history"]
         }
         return json.dumps(data_to_save, ensure_ascii=False, indent=2)
 
@@ -147,169 +166,146 @@ def main():
             mime="application/json"
         )
 
-    # ---- LLM 準備 ----
-    chat_llm = ChatOpenAI(
-        openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-4",  # or "gpt-3.5-turbo"等
-        temperature=0
-    )
+    # --------------------------------------------------
+    # メタデータフィルタを切り替えるロジック
+    # --------------------------------------------------
+    def get_summary_retriever():
+        """
+        要約インデックス向けのRetrieverを作成。
+        'focus_guide_selected' が 'なし' でなければ、そのガイド名に限定フィルタをかける。
+        """
+        if focus_guide_selected != "なし":
+            filter_conf = {"GuideNameJp": {"$eq": focus_guide_selected}}
+            return docsearch_summary.as_retriever(search_kwargs={"k": 3, "filter": filter_conf})
+        else:
+            return docsearch_summary.as_retriever(search_kwargs={"k": 3})
 
-    # ---- QA Chain 関数 ----
-    def run_summary_chain(query_text: str, conversation_history):
+    def get_detail_retriever():
         """
-        1) 要約インデックス(concur-index2)に問い合わせて大枠の回答を得る
-        2) 関連メタデータを返す (DocNameなど)
+        フルインデックス向けのRetrieverを作成。
+        'focus_guide_selected' が 'なし' でなければ、そのガイド名に限定フィルタをかける。
         """
-        retriever = docsearch_summary.as_retriever(search_kwargs={"k": 3})
+        if focus_guide_selected != "なし":
+            filter_conf = {"GuideNameJp": {"$eq": focus_guide_selected}}
+            return docsearch_full.as_retriever(search_kwargs={"k": 5, "filter": filter_conf})
+        else:
+            return docsearch_full.as_retriever(search_kwargs={"k": 5})
+
+    # --------------------------------------------------
+    # ワークフローのURLを後付する処理 (旧コードから流用)
+    # --------------------------------------------------
+    def post_process_answer(user_question: str, raw_answer: str) -> str:
+        # "ワークフロー" のキーワードがあり、"仮払い" が無い場合など、好きに条件追加可能
+        if ("ワークフロー" in user_question) and ("仮払い" not in user_question):
+            if WORKFLOW_OVERVIEW_URL not in raw_answer:
+                raw_answer += (
+                    f"\n\nなお、ワークフローの全般情報については、以下のガイドもご参照ください:\n"
+                    f"{WORKFLOW_OVERVIEW_URL}"
+                )
+        return raw_answer
+
+    # --------------------------------------------------
+    # チェーンを実行する関数 (要約 / 詳細)
+    # --------------------------------------------------
+    def run_summary_chain(query_text: str):
+        retriever = get_summary_retriever()
         chain = ConversationalRetrievalChain.from_llm(
             llm=chat_llm,
             retriever=retriever,
             return_source_documents=True,
             combine_docs_chain_kwargs={"prompt": custom_prompt}
         )
-        result = chain({"question": query_text, "chat_history": conversation_history})
-        answer = result["answer"]
-        src_docs = result.get("source_documents", [])
-
-        # メタデータ収集
-        meta_list = []
-        for d in src_docs:
-            meta_list.append(d.metadata)
-
-        return answer, meta_list
-
-    def run_full_chain(query_text: str, conversation_history, filter_docname: str):
-        """
-        1) フルインデックス(concur-index)に DocNameフィルタ付きで問い合わせ
-        2) 詳細回答を得る
-        """
-        # 例: メタデータ上の "DocName" が filter_docname に一致するものだけ検索
-        filters = {"DocName": {"$eq": filter_docname}}
-        retriever = docsearch_full.as_retriever(search_kwargs={"k": 5, "filter": filters})
-
-        chain = ConversationalRetrievalChain.from_llm(
-            llm=chat_llm,
-            retriever=retriever,
-            return_source_documents=True,
-            combine_docs_chain_kwargs={"prompt": custom_prompt}
-        )
-        result = chain({"question": query_text, "chat_history": conversation_history})
-        answer = result["answer"]
+        # 要約モードでは、履歴を st.session_state["summary_history"] に格納 (が、実際あまり使わない)
+        result = chain({"question": query_text, "chat_history": []})
+        answer = post_process_answer(query_text, result["answer"])
         src_docs = result.get("source_documents", [])
         meta_list = [d.metadata for d in src_docs]
         return answer, meta_list
 
-    # ---- ユーザーインタフェース ----
-    chat_placeholder = st.empty()
+    def run_detail_chain(query_text: str):
+        retriever = get_detail_retriever()
+        chain = ConversationalRetrievalChain.from_llm(
+            llm=chat_llm,
+            retriever=retriever,
+            return_source_documents=True,
+            combine_docs_chain_kwargs={"prompt": custom_prompt}
+        )
+        result = chain({"question": query_text, "chat_history": []})
+        answer = post_process_answer(query_text, result["answer"])
+        src_docs = result.get("source_documents", [])
+        meta_list = [d.metadata for d in src_docs]
+        return answer, meta_list
 
-    with st.container():
-        user_input = st.text_input("新しい質問を入力してください", "")
-        if st.button("送信"):
-            if user_input.strip():
-                with st.spinner("概要を検索しています(要約インデックス)..."):
-                    # 1) 要約インデックスで回答
-                    summary_answer, summary_meta = run_summary_chain(
-                        user_input, st.session_state["history"]
-                    )
-                # 回答に「詳細を見たいですか？」を付け足して返す
-                # ここでは回答の最後に文言を付与して、ユーザーにYes/Noを促す簡易実装
-                summary_answer += "\n\nさらに詳しい情報が必要ですか？「Yes」か「No」でお答えください。"
+    # --------------------------------------------------
+    # メイン画面 UI (2ステップ)
+    # --------------------------------------------------
 
-                # 会話履歴を更新
-                st.session_state["history"].append((user_input, summary_answer))
-                st.session_state["chat_messages"].append({
-                    "user": user_input,
-                    "assistant": summary_answer,
-                    "sources": summary_meta  # 要約インデックスで参照したメタデータ
-                })
+    st.markdown("## Step1: 要約インデックスを使った概要検索")
+    st.write("最初に大まかな質問をしてください。回答後、興味がある部分をコピーして下に貼り付けると詳細検索できます。")
 
-    # ---- 追加のYes/No回答を処理 ----
-    # もしユーザーが次に "Yes" と入力したらフル検索へ進む
-    # (もちろん "Yes" と入力するタイミングや処理フローは設計次第です)
-    with st.container():
-        detail_input = st.text_input("続けて回答する場合、Yes / No / または別の質問を入力:", "")
-        if st.button("続きの送信"):
-            if detail_input.strip():
-                if detail_input.strip().lower() in ["yes", "y"]:
-                    # もっと詳しく知りたい → フル版を検索
-                    # ただし、今はサンプルとして「最初に見つかったDocName」を例に
-                    # 実運用では複数のDocNameがある場合、選択UIを出すなど要改修
-                    if not st.session_state["chat_messages"]:
-                        st.warning("直前の要約インデックス回答が見つかりません。")
-                    else:
-                        # 最新アシスタントメッセージのsourceを取得
-                        last_msg = st.session_state["chat_messages"][-1]
-                        last_sources = last_msg.get("sources", [])
-                        if not last_sources:
-                            st.warning("要約インデックスの検索結果メタデータがありません。")
-                        else:
-                            first_docname = last_sources[0].get("DocName", "")
-                            if not first_docname:
-                                st.warning("DocNameが見つかりません。詳細検索を実行できません。")
-                            else:
-                                # フル検索で回答
-                                with st.spinner(f"詳細検索: DocName={first_docname} ..."):
-                                    detail_answer, detail_meta = run_full_chain(
-                                        user_input,  # or detail_input, ここは好み
-                                        st.session_state["history"],
-                                        filter_docname=first_docname
-                                    )
-                                # 会話履歴に追加
-                                st.session_state["history"].append((detail_input, detail_answer))
-                                st.session_state["chat_messages"].append({
-                                    "user": detail_input,
-                                    "assistant": detail_answer,
-                                    "sources": detail_meta
-                                })
-                elif detail_input.strip().lower() in ["no", "n"]:
-                    # 詳細不要
-                    # 会話を終了 or 別処理
-                    st.session_state["history"].append((detail_input, "かしこまりました。詳細は不要ですね。"))
-                    st.session_state["chat_messages"].append({
-                        "user": detail_input,
-                        "assistant": "かしこまりました。詳細は不要ですね。"
-                    })
-                else:
-                    # 新たな質問として扱う (再度 要約インデックス検索など)
-                    with st.spinner("概要を検索しています(要約インデックス)..."):
-                        summary_answer, summary_meta = run_summary_chain(
-                            detail_input, st.session_state["history"]
-                        )
-                    summary_answer += "\n\nさらに詳しい情報が必要ですか？「Yes」か「No」でお答えください。"
-                    # 会話更新
-                    st.session_state["history"].append((detail_input, summary_answer))
-                    st.session_state["chat_messages"].append({
-                        "user": detail_input,
-                        "assistant": summary_answer,
-                        "sources": summary_meta
-                    })
+    with st.form(key="summary_form"):
+        summary_question = st.text_input("例: 『勘定科目コードとは何ですか？』")
+        do_summary = st.form_submit_button("送信 (要約検索)")
+        if do_summary and summary_question.strip():
+            with st.spinner("要約インデックスを検索中..."):
+                answer, meta = run_summary_chain(summary_question)
 
-    # ---- チャット履歴の表示 ----
-    with chat_placeholder.container():
-        st.subheader("=== 会話履歴 ===")
-        for chat_item in st.session_state["chat_messages"]:
-            user_q = chat_item["user"]
-            ai_a   = chat_item["assistant"]
-            srcs   = chat_item["sources"]
+            # 履歴に保存
+            st.session_state["summary_history"].append((summary_question, answer))
 
-            with st.chat_message("user"):
-                st.write(user_q)
+            st.markdown("### 要約インデックスからの回答")
+            st.write(answer)
+            st.write("#### 参照した設定ガイド:")
+            for m in meta:
+                doc_name   = m.get("DocName", "")
+                guide_name = m.get("GuideNameJp", "")
+                link       = m.get("FullLink", "")
+                st.markdown(f"- **DocName**: {doc_name}")
+                st.markdown(f"  **GuideNameJp**: {guide_name}")
+                st.markdown(f"  **FullLink**: {link}")
+            st.write("---")
 
-            with st.chat_message("assistant"):
-                st.write(ai_a)
-                if srcs:
-                    st.write("##### 参照した設定ガイド:")
-                    for meta in srcs:
-                        doc_name = meta.get("DocName", "")
-                        guide_jp = meta.get("GuideNameJp", "")
-                        sec1     = meta.get("SectionTitle1", "")
-                        sec2     = meta.get("SectionTitle2", "")
-                        link     = meta.get("FullLink", "")
-                        st.markdown(f"- **DocName**: {doc_name}")
-                        st.markdown(f"  **GuideNameJp**: {guide_jp}")
-                        st.markdown(f"  **SectionTitle1**: {sec1}")
-                        st.markdown(f"  **SectionTitle2**: {sec2}")
-                        st.markdown(f"  **FullLink**: {link}")
+    st.markdown("## Step2: フルインデックスを使った詳細検索")
+    st.info("上記の回答から、詳しく知りたい部分(パラグラフやキーワード)をコピーして下欄に貼り付けてください。")
+
+    with st.form(key="detail_form"):
+        detail_question = st.text_area("興味ある部分をコピペして検索", height=100)
+        do_detail = st.form_submit_button("送信 (詳細検索)")
+        if do_detail and detail_question.strip():
+            with st.spinner("フルインデックスを検索中..."):
+                detail_answer, detail_meta = run_detail_chain(detail_question)
+
+            # 履歴に保存
+            st.session_state["detail_history"].append((detail_question, detail_answer))
+
+            st.markdown("### フルインデックスからの詳細回答")
+            st.write(detail_answer)
+            st.write("#### 参照した設定ガイド:")
+            for m in detail_meta:
+                doc_name   = m.get("DocName", "")
+                guide_name = m.get("GuideNameJp", "")
+                sec1       = m.get("SectionTitle1", "")
+                sec2       = m.get("SectionTitle2", "")
+                link       = m.get("FullLink", "")
+                st.markdown(f"- **DocName**: {doc_name}")
+                st.markdown(f"  **GuideNameJp**: {guide_name}")
+                st.markdown(f"  **SectionTitle1**: {sec1}")
+                st.markdown(f"  **SectionTitle2**: {sec2}")
+                st.markdown(f"  **FullLink**: {link}")
+            st.write("---")
+
+    # --------------------------------------------------
+    # 会話履歴表示 (オプション)
+    # --------------------------------------------------
+    st.write("## 会話履歴（要約・詳細）を確認")
+    if st.checkbox("表示する"):
+        st.subheader("=== 要約インデックス検索 ===")
+        for i, (q, a) in enumerate(st.session_state["summary_history"], start=1):
+            st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}\n---")
+
+        st.subheader("=== フルインデックス検索 ===")
+        for i, (q, a) in enumerate(st.session_state["detail_history"], start=1):
+            st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}\n---")
 
 if __name__ == "__main__":
     main()
