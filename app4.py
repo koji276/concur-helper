@@ -3,9 +3,11 @@ import json
 import streamlit as st
 from dotenv import load_dotenv
 
-import weaviate  # Weaviate Python client (v3 style) for the "Weaviate" VectorStore in LangChain
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.vectorstores import Weaviate  # LangChain's Weaviate vector store
+from pinecone import Pinecone
+
+# LangChain の各種クラス
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
@@ -15,20 +17,24 @@ from datetime import datetime
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-WEAVIATE_URL   = os.getenv("WEAVIATE_URL","")  # e.g. "https://my-weaviate-instance.com"
-WEAVIATE_API_KEY = os.getenv("WEAVIATE_API_KEY","")  # If needed for auth (OIDC, tokens, etc.)
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
+PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
-INDEX_NAME = "Document"  # The Weaviate "class" name (v3 style)
-TEXT_KEY = "chunkText"   # The property in your Weaviate schema that holds the chunk text
-NAMESPACE = "demo-html"  # (Weaviate doesn't use the same concept as pinecone's "namespace", but we can store in "class" or "tenant" in v3 style)
+# 要約が格納されているインデックス
+SUMMARY_INDEX_NAME = "concur-index2"  # ① 要約インデックス
+SUMMARY_NAMESPACE  = "demo-html"
 
+# フルドキュメントが格納されているインデックス
+FULL_INDEX_NAME = "concur-index"      # ② フル版インデックス
+FULL_NAMESPACE  = "demo-html"
+
+# 参考: app3.pyにあるワークフロー関連定義 (必要に応じて継承)
 WORKFLOW_GUIDES = [
     "ワークフロー（概要）(2023年10月14日版)",
     "ワークフロー（承認権限者）(2023年8月25日版)",
     "ワークフロー（原価対象の承認者)(2023年8月25日版)",
     "ワークフロー（メール通知）(2020年3月24日版)"
 ]
-
 WORKFLOW_OVERVIEW_URL = "https://koji276.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#_Toc150956193"
 
 CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
@@ -55,9 +61,9 @@ custom_prompt = PromptTemplate(
 )
 
 def main():
-    st.title("Concur Helper ‐ 開発者支援ボット")
+    st.title("Concur Helper ‐ 要約・詳細二段階ボット")
 
-    # セッション初期化
+    # --- セッション初期化 ---
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
     if "history" not in st.session_state:
@@ -65,34 +71,30 @@ def main():
     if "focus_guide" not in st.session_state:
         st.session_state["focus_guide"] = "なし"
 
-    # Weaviate & VectorStore
-    # 1) Weaviateクライアント (v3 style)
-    #    NOTE: For OIDC or API key, we might need additional config
-    weaviate_client = weaviate.Client(
-        url=WEAVIATE_URL,
-        additional_headers={
-            "X-OpenAI-Api-Key": OPENAI_API_KEY,
-            "Authorization": f"Bearer {WEAVIATE_API_KEY}"
-        }
+    # Pinecone 初期化
+    pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+
+    # ① 要約インデックスの VectorStore
+    sum_index = pc.Index(SUMMARY_INDEX_NAME)
+    embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
+    docsearch_summary = PineconeVectorStore(
+        embedding=embeddings,
+        index=sum_index,
+        namespace=SUMMARY_NAMESPACE,
+        text_key="chunk_text"
     )
 
-    embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
-
-    # 2) LangChainのWeaviate VectorStore
-    vectorstore = Weaviate(
-        client=weaviate_client,
-        index_name=INDEX_NAME,  # "Document" class name
-        text_key=TEXT_KEY,      # property that holds text
-        embedding=embeddings
+    # ② フルインデックスの VectorStore
+    full_index = pc.Index(FULL_INDEX_NAME)
+    docsearch_full = PineconeVectorStore(
+        embedding=embeddings,
+        index=full_index,
+        namespace=FULL_NAMESPACE,
+        text_key="chunk_text"
     )
 
-    # 3) retriever
-    docsearch = vectorstore.as_retriever(search_kwargs={"k":3})
-
-    # -----------------------------
-    # サイドバー: 「設定ガイドのリスト」ボタン (HTML+リンク)
-    # -----------------------------
-    st.sidebar.header("設定ガイドのリスト")
+    # サイドバー
+    st.sidebar.header("ガイドのリスト（サンプル）")
     st.sidebar.markdown(
         """
         <a href="https://koji276.github.io/concur-docs/index.htm" target="_blank">
@@ -104,23 +106,9 @@ def main():
         unsafe_allow_html=True
     )
 
-    # -----------------------------
-    # サイドバー: ガイドのフォーカス
-    # -----------------------------
-    st.sidebar.header("ガイドのフォーカス")
-    focus_guide_selected = st.sidebar.selectbox(
-        "特定のガイド名にフォーカスする場合は選択してください:",
-        options=["なし"] + WORKFLOW_GUIDES,
-        index=0
-    )
-    st.session_state["focus_guide"] = focus_guide_selected
-
-    # -----------------------------
-    # 会話履歴の管理
-    # -----------------------------
+    # 会話履歴のアップロード機能などは app3.py と同様
     st.sidebar.header("会話履歴の管理")
     uploaded_file = st.sidebar.file_uploader("保存していた会話ファイルを選択 (.json)", type="json")
-
     if uploaded_file is not None:
         uploaded_content = uploaded_file.read()
         try:
@@ -128,6 +116,7 @@ def main():
             st.session_state["chat_messages"] = loaded_json.get("chat_messages", [])
             st.session_state["history"] = loaded_json.get("history", [])
 
+            # タプル化
             new_history = []
             for item in st.session_state["history"]:
                 if isinstance(item, list) and len(item) == 2:
@@ -158,57 +147,20 @@ def main():
             mime="application/json"
         )
 
-    # -----------------------------
-    # 検索ロジック
-    # -----------------------------
-    def get_filtered_retriever(query_text: str):
-        """
-        もともとPineconeのメタデータフィルタを使っていた箇所。
-        Weaviateの場合、metadataフィルタをLangChainで使うには
-        'search_kwargs={"where": {...}}' 形式などが必要になる。
-        ただしWeaviate VectorStoreはlimitしか対応していない、という場合もある。
-
-        下記は簡易に: "focus_guide"が"なし"でなければ
-        => "GuideNameJp"メタデータが"focus_guide"に等しいものを絞り込み
-        => それ以外は全体検索
-        """
-        if st.session_state["focus_guide"] != "なし":
-            # LangChain Weaviate store supports a "where" param in search_kwargs: 
-            # https://python.langchain.com/docs/integrations/vectorstores/weaviate
-            # e.g. 
-            # "where": {
-            #   "path": ["GuideNameJp"],
-            #   "operator": "Equal",
-            #   "valueText": st.session_state["focus_guide"]
-            # }
-            filter_where = {
-                "path": ["GuideNameJp"],
-                "operator": "Equal",
-                "valueText": st.session_state["focus_guide"]
-            }
-            return vectorstore.as_retriever(search_kwargs={"k":3, "where": filter_where})
-
-        else:
-            # そのまま k=3
-            return vectorstore.as_retriever(search_kwargs={"k":3})
-
+    # ---- LLM 準備 ----
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-4",
+        model_name="gpt-4",  # or "gpt-3.5-turbo"等
         temperature=0
     )
 
-    def post_process_answer(user_question: str, raw_answer: str) -> str:
-        if "ワークフロー" in user_question:
-            if WORKFLOW_OVERVIEW_URL not in raw_answer:
-                raw_answer += (
-                    f"\n\nなお、ワークフローの全般情報については、以下のガイドもご参照ください:\n"
-                    f"{WORKFLOW_OVERVIEW_URL}"
-                )
-        return raw_answer
-
-    def run_qa_chain(query_text: str, conversation_history):
-        retriever = get_filtered_retriever(query_text)
+    # ---- QA Chain 関数 ----
+    def run_summary_chain(query_text: str, conversation_history):
+        """
+        1) 要約インデックス(concur-index2)に問い合わせて大枠の回答を得る
+        2) 関連メタデータを返す (DocNameなど)
+        """
+        retriever = docsearch_summary.as_retriever(search_kwargs={"k": 3})
         chain = ConversationalRetrievalChain.from_llm(
             llm=chat_llm,
             retriever=retriever,
@@ -216,41 +168,123 @@ def main():
             combine_docs_chain_kwargs={"prompt": custom_prompt}
         )
         result = chain({"question": query_text, "chat_history": conversation_history})
-        final_answer = post_process_answer(query_text, result["answer"])
-        return {
-            "answer": final_answer,
-            "source_documents": result.get("source_documents", [])
-        }
+        answer = result["answer"]
+        src_docs = result.get("source_documents", [])
 
-    # -----------------------------
-    # メイン画面: チャット入力UI
-    # -----------------------------
+        # メタデータ収集
+        meta_list = []
+        for d in src_docs:
+            meta_list.append(d.metadata)
+
+        return answer, meta_list
+
+    def run_full_chain(query_text: str, conversation_history, filter_docname: str):
+        """
+        1) フルインデックス(concur-index)に DocNameフィルタ付きで問い合わせ
+        2) 詳細回答を得る
+        """
+        # 例: メタデータ上の "DocName" が filter_docname に一致するものだけ検索
+        filters = {"DocName": {"$eq": filter_docname}}
+        retriever = docsearch_full.as_retriever(search_kwargs={"k": 5, "filter": filters})
+
+        chain = ConversationalRetrievalChain.from_llm(
+            llm=chat_llm,
+            retriever=retriever,
+            return_source_documents=True,
+            combine_docs_chain_kwargs={"prompt": custom_prompt}
+        )
+        result = chain({"question": query_text, "chat_history": conversation_history})
+        answer = result["answer"]
+        src_docs = result.get("source_documents", [])
+        meta_list = [d.metadata for d in src_docs]
+        return answer, meta_list
+
+    # ---- ユーザーインタフェース ----
     chat_placeholder = st.empty()
 
     with st.container():
         user_input = st.text_input("新しい質問を入力してください", "")
         if st.button("送信"):
             if user_input.strip():
-                with st.spinner("回答を生成中..."):
-                    result = run_qa_chain(user_input, st.session_state["history"])
+                with st.spinner("概要を検索しています(要約インデックス)..."):
+                    # 1) 要約インデックスで回答
+                    summary_answer, summary_meta = run_summary_chain(
+                        user_input, st.session_state["history"]
+                    )
+                # 回答に「詳細を見たいですか？」を付け足して返す
+                # ここでは回答の最後に文言を付与して、ユーザーにYes/Noを促す簡易実装
+                summary_answer += "\n\nさらに詳しい情報が必要ですか？「Yes」か「No」でお答えください。"
 
-                answer = result["answer"]
-                source_info = []
-                if "source_documents" in result:
-                    for doc in result["source_documents"]:
-                        # doc.page_content => text, doc.metadata => ...
-                        source_info.append(doc.metadata)
-
-                st.session_state["history"].append((user_input, answer))
+                # 会話履歴を更新
+                st.session_state["history"].append((user_input, summary_answer))
                 st.session_state["chat_messages"].append({
                     "user": user_input,
-                    "assistant": answer,
-                    "sources": source_info
+                    "assistant": summary_answer,
+                    "sources": summary_meta  # 要約インデックスで参照したメタデータ
                 })
 
-    # -----------------------------
-    # チャット履歴表示
-    # -----------------------------
+    # ---- 追加のYes/No回答を処理 ----
+    # もしユーザーが次に "Yes" と入力したらフル検索へ進む
+    # (もちろん "Yes" と入力するタイミングや処理フローは設計次第です)
+    with st.container():
+        detail_input = st.text_input("続けて回答する場合、Yes / No / または別の質問を入力:", "")
+        if st.button("続きの送信"):
+            if detail_input.strip():
+                if detail_input.strip().lower() in ["yes", "y"]:
+                    # もっと詳しく知りたい → フル版を検索
+                    # ただし、今はサンプルとして「最初に見つかったDocName」を例に
+                    # 実運用では複数のDocNameがある場合、選択UIを出すなど要改修
+                    if not st.session_state["chat_messages"]:
+                        st.warning("直前の要約インデックス回答が見つかりません。")
+                    else:
+                        # 最新アシスタントメッセージのsourceを取得
+                        last_msg = st.session_state["chat_messages"][-1]
+                        last_sources = last_msg.get("sources", [])
+                        if not last_sources:
+                            st.warning("要約インデックスの検索結果メタデータがありません。")
+                        else:
+                            first_docname = last_sources[0].get("DocName", "")
+                            if not first_docname:
+                                st.warning("DocNameが見つかりません。詳細検索を実行できません。")
+                            else:
+                                # フル検索で回答
+                                with st.spinner(f"詳細検索: DocName={first_docname} ..."):
+                                    detail_answer, detail_meta = run_full_chain(
+                                        user_input,  # or detail_input, ここは好み
+                                        st.session_state["history"],
+                                        filter_docname=first_docname
+                                    )
+                                # 会話履歴に追加
+                                st.session_state["history"].append((detail_input, detail_answer))
+                                st.session_state["chat_messages"].append({
+                                    "user": detail_input,
+                                    "assistant": detail_answer,
+                                    "sources": detail_meta
+                                })
+                elif detail_input.strip().lower() in ["no", "n"]:
+                    # 詳細不要
+                    # 会話を終了 or 別処理
+                    st.session_state["history"].append((detail_input, "かしこまりました。詳細は不要ですね。"))
+                    st.session_state["chat_messages"].append({
+                        "user": detail_input,
+                        "assistant": "かしこまりました。詳細は不要ですね。"
+                    })
+                else:
+                    # 新たな質問として扱う (再度 要約インデックス検索など)
+                    with st.spinner("概要を検索しています(要約インデックス)..."):
+                        summary_answer, summary_meta = run_summary_chain(
+                            detail_input, st.session_state["history"]
+                        )
+                    summary_answer += "\n\nさらに詳しい情報が必要ですか？「Yes」か「No」でお答えください。"
+                    # 会話更新
+                    st.session_state["history"].append((detail_input, summary_answer))
+                    st.session_state["chat_messages"].append({
+                        "user": detail_input,
+                        "assistant": summary_answer,
+                        "sources": summary_meta
+                    })
+
+    # ---- チャット履歴の表示 ----
     with chat_placeholder.container():
         st.subheader("=== 会話履歴 ===")
         for chat_item in st.session_state["chat_messages"]:
@@ -279,4 +313,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
