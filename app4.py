@@ -269,7 +269,7 @@ def main():
  st.info("上記の回答から、詳しく知りたい部分(パラグラフやキーワード)をコピーして下欄に貼り付けてください。")
 
  with st.form(key="detail_form"):
-     detail_question = st.text_area("興味ある部分をコピペして検索", height=100)
+     detail_question = st.text_area("詳しく知りたい部分をコピペして検索", height=100)
      do_detail = st.form_submit_button("送信 (詳細検索)")
      if do_detail and detail_question.strip():
          with st.spinner("回答（詳細）を作成中..."):
