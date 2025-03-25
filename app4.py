@@ -245,19 +245,16 @@ def main():
 
  with st.form(key="summary_form"):
      summary_question = st.text_input("例: 『勘定科目コードとは何ですか？』")
-     do_summary = st.form_submit_button("送信 (要約検索)")
+     do_summary = st.form_submit_button("送信 (概要検索)")
      if do_summary and summary_question.strip():
-         with st.spinner("要約インデックスを検索中..."):
-           with st.spinner("回答（概要）を作成中..."):
-             answer, meta = run_summary_chain(summary_question)
+         with st.spinner("回答（概要）を作成中..."):
+           answer, meta = run_summary_chain(summary_question)
 
          # 履歴に保存
          st.session_state["summary_history"].append((summary_question, answer))
 
-         st.markdown("### 要約インデックスからの回答")
          st.markdown("### 回答（概要）")
          st.write(answer)
-         st.write("#### 参照した設定ガイド:")
          st.write("#### 参照すべき設定ガイド:")
          for m in meta:
              doc_name   = m.get("DocName", "")
@@ -275,18 +272,15 @@ def main():
      detail_question = st.text_area("興味ある部分をコピペして検索", height=100)
      do_detail = st.form_submit_button("送信 (詳細検索)")
      if do_detail and detail_question.strip():
-         with st.spinner("フルインデックスを検索中..."):
-           with st.spinner("回答（詳細）を作成中..."):
-             detail_answer, detail_meta = run_detail_chain(detail_question)
+         with st.spinner("回答（詳細）を作成中..."):
+           detail_answer, detail_meta = run_detail_chain(detail_question)
 
          # 履歴に保存
          st.session_state["detail_history"].append((detail_question, detail_answer))
 
-         st.markdown("### フルインデックスからの詳細回答")
          st.markdown("### 詳細な回答")
          st.write(detail_answer)
          st.write("#### 参照した設定ガイド:")
-         st.write("#### 参照すべき設定ガイド:")
          for m in detail_meta:
              doc_name   = m.get("DocName", "")
              guide_name = m.get("GuideNameJp", "")
@@ -303,13 +297,13 @@ def main():
  # --------------------------------------------------
  # 会話履歴表示 (オプション)
  # --------------------------------------------------
- st.write("## 会話履歴（要約・詳細）を確認")
+ st.write("## 会話履歴（概要・詳細）を確認")
  if st.checkbox("表示する"):
-     st.subheader("=== 要約インデックス検索 ===")
+     st.subheader("=== 概要のQ&A ===")
      for i, (q, a) in enumerate(st.session_state["summary_history"], start=1):
          st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}\n---")
 
-     st.subheader("=== フルインデックス検索 ===")
+     st.subheader("=== 詳細のQ&A ===")
      for i, (q, a) in enumerate(st.session_state["detail_history"], start=1):
          st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}\n---")
 
