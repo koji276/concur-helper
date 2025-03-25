@@ -276,7 +276,7 @@ def main():
      do_detail = st.form_submit_button("送信 (詳細検索)")
      if do_detail and detail_question.strip():
          with st.spinner("フルインデックスを検索中..."):
-         with st.spinner("回答（詳細）を作成中..."):
+           with st.spinner("回答（詳細）を作成中..."):
              detail_answer, detail_meta = run_detail_chain(detail_question)
 
          # 履歴に保存
