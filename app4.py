@@ -3,10 +3,9 @@ import json
 import streamlit as st
 from dotenv import load_dotenv
 
-from pinecone import Pinecone
-
-from langchain_openai import OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
+import weaviate  # Weaviate Python client (v3 style) for the "Weaviate" VectorStore in LangChain
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.vectorstores import Weaviate  # LangChain's Weaviate vector store
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
@@ -16,11 +15,12 @@ from datetime import datetime
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
-PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
+WEAVIATE_URL   = os.getenv("WEAVIATE_URL","")  # e.g. "https://my-weaviate-instance.com"
+WEAVIATE_API_KEY = os.getenv("WEAVIATE_API_KEY","")  # If needed for auth (OIDC, tokens, etc.)
 
-INDEX_NAME = "concur-index"
-NAMESPACE = "demo-html"
+INDEX_NAME = "Document"  # The Weaviate "class" name (v3 style)
+TEXT_KEY = "chunkText"   # The property in your Weaviate schema that holds the chunk text
+NAMESPACE = "demo-html"  # (Weaviate doesn't use the same concept as pinecone's "namespace", but we can store in "class" or "tenant" in v3 style)
 
 WORKFLOW_GUIDES = [
     "ワークフロー（概要）(2023年10月14日版)",
@@ -65,22 +65,34 @@ def main():
     if "focus_guide" not in st.session_state:
         st.session_state["focus_guide"] = "なし"
 
-    # Pinecone & VectorStore
-    pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-    my_index = pc.Index(INDEX_NAME)
-    embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
-    docsearch = PineconeVectorStore(
-        embedding=embeddings,
-        index=my_index,
-        namespace=NAMESPACE,
-        text_key="chunk_text"
+    # Weaviate & VectorStore
+    # 1) Weaviateクライアント (v3 style)
+    #    NOTE: For OIDC or API key, we might need additional config
+    weaviate_client = weaviate.Client(
+        url=WEAVIATE_URL,
+        additional_headers={
+            "X-OpenAI-Api-Key": OPENAI_API_KEY,
+            "Authorization": f"Bearer {WEAVIATE_API_KEY}"
+        }
     )
+
+    embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+
+    # 2) LangChainのWeaviate VectorStore
+    vectorstore = Weaviate(
+        client=weaviate_client,
+        index_name=INDEX_NAME,  # "Document" class name
+        text_key=TEXT_KEY,      # property that holds text
+        embedding=embeddings
+    )
+
+    # 3) retriever
+    docsearch = vectorstore.as_retriever(search_kwargs={"k":3})
 
     # -----------------------------
     # サイドバー: 「設定ガイドのリスト」ボタン (HTML+リンク)
     # -----------------------------
     st.sidebar.header("設定ガイドのリスト")
-    # Markdown＋HTMLを使って、ボタン風の見た目に
     st.sidebar.markdown(
         """
         <a href="https://koji276.github.io/concur-docs/index.htm" target="_blank">
@@ -116,7 +128,6 @@ def main():
             st.session_state["chat_messages"] = loaded_json.get("chat_messages", [])
             st.session_state["history"] = loaded_json.get("history", [])
 
-            # タプル化
             new_history = []
             for item in st.session_state["history"]:
                 if isinstance(item, list) and len(item) == 2:
@@ -151,32 +162,43 @@ def main():
     # 検索ロジック
     # -----------------------------
     def get_filtered_retriever(query_text: str):
-        # ユーザーのフォーカス設定＆質問内容に応じてPineconeのメタデータフィルタを切り替える
-        # 1) 特定ガイドにフォーカス
+        """
+        もともとPineconeのメタデータフィルタを使っていた箇所。
+        Weaviateの場合、metadataフィルタをLangChainで使うには
+        'search_kwargs={"where": {...}}' 形式などが必要になる。
+        ただしWeaviate VectorStoreはlimitしか対応していない、という場合もある。
+
+        下記は簡易に: "focus_guide"が"なし"でなければ
+        => "GuideNameJp"メタデータが"focus_guide"に等しいものを絞り込み
+        => それ以外は全体検索
+        """
         if st.session_state["focus_guide"] != "なし":
-            focus_filter = {
-                "GuideNameJp": {"$eq": st.session_state["focus_guide"]}
+            # LangChain Weaviate store supports a "where" param in search_kwargs: 
+            # https://python.langchain.com/docs/integrations/vectorstores/weaviate
+            # e.g. 
+            # "where": {
+            #   "path": ["GuideNameJp"],
+            #   "operator": "Equal",
+            #   "valueText": st.session_state["focus_guide"]
+            # }
+            filter_where = {
+                "path": ["GuideNameJp"],
+                "operator": "Equal",
+                "valueText": st.session_state["focus_guide"]
             }
-            return docsearch.as_retriever(search_kwargs={"k": 3, "filter": focus_filter})
+            return vectorstore.as_retriever(search_kwargs={"k":3, "where": filter_where})
 
-        # 2) "ワークフロー" & not "仮払い" → ワークフロー4ガイドに限定
-        if ("ワークフロー" in query_text) and ("仮払い" not in query_text):
-            wf_filter = {
-                "GuideNameJp": {"$in": WORKFLOW_GUIDES}
-            }
-            return docsearch.as_retriever(search_kwargs={"k": 3, "filter": wf_filter})
-
-        # それ以外は全体検索
-        return docsearch.as_retriever(search_kwargs={"k": 3})
+        else:
+            # そのまま k=3
+            return vectorstore.as_retriever(search_kwargs={"k":3})
 
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-4o",
+        model_name="gpt-4",
         temperature=0
     )
 
     def post_process_answer(user_question: str, raw_answer: str) -> str:
-        # ワークフロー関連の質問には必ずワークフロー(概要)のURLを追記
         if "ワークフロー" in user_question:
             if WORKFLOW_OVERVIEW_URL not in raw_answer:
                 raw_answer += (
@@ -216,6 +238,7 @@ def main():
                 source_info = []
                 if "source_documents" in result:
                     for doc in result["source_documents"]:
+                        # doc.page_content => text, doc.metadata => ...
                         source_info.append(doc.metadata)
 
                 st.session_state["history"].append((user_input, answer))
@@ -256,3 +279,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
