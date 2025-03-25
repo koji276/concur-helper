@@ -205,7 +205,7 @@ def main():
      return raw_answer
 
  # --------------------------------------------------
- # チェーンを実行する関数 (要約 / 詳細)
+ # チェーンを実行する関数 （概要 / 詳細)
  # --------------------------------------------------
  def run_summary_chain(query_text: str):
      retriever = get_summary_retriever()
@@ -241,7 +241,7 @@ def main():
  # --------------------------------------------------
 
  st.markdown("## Step1: 概要検索")
- st.write("最初に大まかな質問をしてください。回答後、興味がある部分をコピーして下に貼り付けると詳細検索できます。")
+ st.write("最初に大まかな質問をしてください。回答後、より詳しく知りたい箇所をコピーして下に貼り付けると詳細検索できます。")
 
  with st.form(key="summary_form"):
      summary_question = st.text_input("例: 『勘定科目コードとは何ですか？』")
@@ -280,7 +280,7 @@ def main():
 
          st.markdown("### 詳細な回答")
          st.write(detail_answer)
-         st.write("#### 参照した設定ガイド:")
+         st.write("#### 参照すべき設定ガイド:")
          for m in detail_meta:
              doc_name   = m.get("DocName", "")
              guide_name = m.get("GuideNameJp", "")
