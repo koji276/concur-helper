@@ -269,7 +269,7 @@ def main():
  st.info("上記の回答から、詳しく知りたい部分(パラグラフやキーワード)をコピーして下欄に貼り付けてください。")
 
  with st.form(key="detail_form"):
-     detail_question = st.text_area("詳しく知りたい部分をコピペして検索", height=100)
+     detail_question = st.text_area("さらに詳しく知りたい部分をコピペして検索", height=100)
      do_detail = st.form_submit_button("送信 (詳細検索)")
      if do_detail and detail_question.strip():
          with st.spinner("回答（詳細）を作成中..."):
@@ -294,8 +294,8 @@ def main():
              st.markdown(f"  **FullLink**: {link}")
          st.write("---")
 
- st.markdown("## Step3: 設定ガイド")
- st.info("上記提供された設定ガイドのリンク先をクリックすることで、開発設定画面などの詳細情報が入手可能です。")
+ st.markdown("## Step3: 設定ガイド検索")
+ st.info("上記提供された設定ガイドのリンク先をクリックすることで、関連情報や開発設定画面などの詳細情報が入手可能です。")
 
 
  # --------------------------------------------------
