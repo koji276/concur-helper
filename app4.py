@@ -5,12 +5,10 @@ from dotenv import load_dotenv
 from pinecone import Pinecone
 from datetime import datetime
 
-# --------------------------------------------------
-# ★ Streamlit のページ設定を最初に呼び出す ★
-# --------------------------------------------------
-st.set_page_config(layout="wide")
+# --- Streamlit のページ設定を最初に行う ---
+st.set_page_config(page_title="Concur Helper", layout="wide")
 
-# LangChainライブラリ（インポートはこのままでOK）
+# LangChainライブラリなどのインポート
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain.chat_models import ChatOpenAI
@@ -19,25 +17,16 @@ from langchain.prompts import PromptTemplate
 
 load_dotenv()
 
-# --------------------------------------------------
-# APIキー・環境変数を読み込み
-# --------------------------------------------------
 OPENAI_API_KEY       = os.getenv("OPENAI_API_KEY", "")
 PINECONE_API_KEY     = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
-# --------------------------------------------------
-# インデックスの定義
-# --------------------------------------------------
-SUMMARY_INDEX_NAME = "concur-index2"   # 要約インデックス
+SUMMARY_INDEX_NAME = "concur-index2"
 SUMMARY_NAMESPACE  = "demo-html"
 
-FULL_INDEX_NAME = "concur-index"       # フルインデックス
+FULL_INDEX_NAME = "concur-index"
 FULL_NAMESPACE  = "demo-html"
 
-# --------------------------------------------------
-# ワークフロー系の例
-# --------------------------------------------------
 WORKFLOW_GUIDES = [
  "ワークフロー（概要）(2023年10月14日版)",
  "ワークフロー（承認権限者）(2023年8月25日版)",
@@ -46,9 +35,6 @@ WORKFLOW_GUIDES = [
 ]
 WORKFLOW_OVERVIEW_URL = "https://koji276.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#_Toc150956193"
 
-# --------------------------------------------------
-# プロンプトテンプレート
-# --------------------------------------------------
 CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
 以下のドキュメント情報(検索結果)とユーザーの質問を踏まえて、
 ChatGPT-4モデルとして詳しくかつわかりやすい回答を行ってください。
@@ -57,7 +43,6 @@ ChatGPT-4モデルとして詳しくかつわかりやすい回答を行って�
 - 回答は十分な説明を含み、原理や理由も分かるように解説してください。
 - ユーザーが疑問を解消できるよう、段階的な説明や背景情報も交えてください。
 - ただしドキュメントの原文を不要に繰り返すのは避け、ポイントのみを的確に述べてください。
-- “Context:” などの文言は出さず、テキストの重複や冗長表現を可能な限り減らしてください。
 - 答えが分からない場合は「わかりません」と述べてください。
 
 ドキュメント情報:
@@ -72,25 +57,20 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
-
 def main():
+    # 1) タイトルやサイドバーなど、通常の Streamlit の部品を先に定義
     st.title("Concur Helper - 開発者支援ボット")
 
-    # --------------------------------------------------
     # セッション初期化
-    # --------------------------------------------------
     if "summary_history" not in st.session_state:
         st.session_state["summary_history"] = []
     if "detail_history" not in st.session_state:
         st.session_state["detail_history"] = []
 
-    # --------------------------------------------------
-    # Pinecone 初期化 & VectorStore
-    # --------------------------------------------------
+    # Pinecone 設定
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
-    # 要約インデックス
     sum_index = pc.Index(SUMMARY_INDEX_NAME)
     docsearch_summary = PineconeVectorStore(
         embedding=embeddings,
@@ -99,7 +79,6 @@ def main():
         text_key="chunk_text"
     )
 
-    # フルインデックス
     full_index = pc.Index(FULL_INDEX_NAME)
     docsearch_full = PineconeVectorStore(
         embedding=embeddings,
@@ -114,9 +93,7 @@ def main():
         temperature=0
     )
 
-    # --------------------------------------------------
     # サイドバー
-    # --------------------------------------------------
     st.sidebar.header("設定ガイドのリスト")
     st.sidebar.markdown(
         """
@@ -129,7 +106,6 @@ def main():
         unsafe_allow_html=True
     )
 
-    # フォーカスガイドの選択
     st.sidebar.header("ガイドのフォーカス")
     focus_guide_selected = st.sidebar.selectbox(
         "特定のガイドにフォーカス",
@@ -137,7 +113,6 @@ def main():
         index=0
     )
 
-    # 会話履歴の管理
     st.sidebar.header("会話履歴の管理")
     uploaded_file = st.sidebar.file_uploader("保存していた会話ファイルを選択 (.json)", type="json")
     if uploaded_file is not None:
@@ -168,9 +143,7 @@ def main():
             mime="application/json"
         )
 
-    # --------------------------------------------------
-    # Retriever
-    # --------------------------------------------------
+    # Retriever作成
     def get_summary_retriever():
         if focus_guide_selected != "なし":
             filter_conf = {"GuideNameJp": {"$eq": focus_guide_selected}}
@@ -222,38 +195,45 @@ def main():
         meta_list = [d.metadata for d in src_docs]
         return answer, meta_list
 
-    # --------------------------------------------------
-    # カラムで左右分割 + カラム内スクロールを実装する
-    # --------------------------------------------------
-    # ページを左右 1:2 の比率で分割
+    # 2) ページ全体を高さ100%にし、メインのスクロールを隠すCSS
+    st.markdown("""
+    <style>
+    /* ページやブロックコンテナのスクロールを隠す */
+    html, body, [data-testid="stAppViewContainer"] {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; /* ←これでメインのスクロールが消え、内部コンテナに限定できる */
+    }
+
+    /* カラム全体を flex レイアウトにするなどは columns が内部でやっているので不要 */
+
+    /* 左右カラムそれぞれにスクロール領域を持たせる */
+    .left-column {
+        height: calc(100vh - 5rem); /* 画面高さ - タイトルや上部余白の分(例として5rem) */
+        overflow-y: auto;
+        padding-right: 1rem;
+    }
+    .right-column {
+        height: calc(100vh - 5rem);
+        overflow-y: auto;
+    }
+
+    /* Streamlitのヘッダー分がもう少し大きい/小さいなら適宜調整 */
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 3) カラムで左右分割
     col_left, col_right = st.columns([1, 2])
 
-    # カラム内でスクロールさせるための CSS を埋め込み
-    st.markdown(
-        """
-        <style>
-        .left-column {
-            max-height: 90vh;      /* 左カラムの最大高さを画面高の9割に */
-            overflow-y: auto;      /* 縦スクロールバー */
-            padding-right: 1rem;   /* 見やすいように右余白 */
-        }
-        .right-column {
-            max-height: 90vh; 
-            overflow-y: auto;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
     # -------------------------
-    # 左カラム: 入力フォームなど
+    # 左カラム：フォーム類
     # -------------------------
     with col_left:
         st.markdown('<div class="left-column">', unsafe_allow_html=True)
 
         st.subheader("Step1: 概要検索")
-        st.write("大まかな質問をどうぞ。回答後、ピンポイントで気になる部分をコピーして「詳細検索」へ。")
+        st.write("大まかな質問を入力してください。回答後、要点をコピーし詳細検索へ。")
 
         with st.form(key="summary_form"):
             summary_question = st.text_input("例: 『勘定科目コードの概要』『元帳の作業手順』『ワークフローの設定』")
@@ -261,7 +241,6 @@ def main():
             if do_summary and summary_question.strip():
                 with st.spinner("回答（概要）を作成中..."):
                     answer, meta = run_summary_chain(summary_question)
-
                 st.session_state["summary_history"].append({
                     "question": summary_question,
                     "answer": answer,
@@ -281,10 +260,10 @@ def main():
                 st.write("---")
 
         st.subheader("Step2: 詳細検索")
-        st.info("上の回答からもっと詳しく知りたい部分(パラグラフなど)をコピーして、下に貼り付けます。")
+        st.info("上記回答で詳しく知りたい部分をコピーして下に貼り付け、さらに深堀します。")
 
         with st.form(key="detail_form"):
-            detail_question = st.text_area("詳しく知りたい内容をコピペして検索", height=120)
+            detail_question = st.text_area("さらに詳しく知りたい部分をコピペして検索", height=100)
             do_detail = st.form_submit_button("送信 (詳細検索)")
             if do_detail and detail_question.strip():
                 with st.spinner("回答（詳細）を作成中..."):
@@ -313,18 +292,18 @@ def main():
                 st.write("---")
 
         st.subheader("Step3: 設定ガイド検索")
-        st.info("上記のリンク先をクリックすると、関連情報や開発設定画面を参照できます。")
+        st.info("上記リンク先をクリックすると、関連情報や開発設定画面が参照できます。")
 
-        st.markdown('</div>', unsafe_allow_html=True)  # left-column 終了
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # -------------------------
-    # 右カラム: 会話履歴表示
+    # 右カラム：会話履歴
     # -------------------------
     with col_right:
         st.markdown('<div class="right-column">', unsafe_allow_html=True)
 
         st.subheader("会話履歴（概要・詳細）")
-        st.write("これまで送信したQ&Aの履歴です。")
+        st.write("これまでのQ&Aを確認できます。")
 
         if st.checkbox("履歴を表示する"):
             st.markdown("### 概要のQ&A")
@@ -371,11 +350,8 @@ def main():
                         st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
-        st.markdown('</div>', unsafe_allow_html=True)  # right-column 終了
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --------------------------------------------------
-# メイン
-# --------------------------------------------------
 if __name__ == "__main__":
     main()
