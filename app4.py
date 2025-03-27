@@ -72,10 +72,12 @@ def main():
  # --------------------------------------------------
  # セッション初期化
  # --------------------------------------------------
+ # 履歴にメタ情報も格納できるようにするため、各要素を「辞書形式」で持つことを想定します。
+ # （例: {"question": ..., "answer": ..., "meta": ...} ）
  if "summary_history" not in st.session_state:
-     st.session_state["summary_history"] = []  # 要約の履歴
+     st.session_state["summary_history"] = []
  if "detail_history" not in st.session_state:
-     st.session_state["detail_history"] = []   # 詳細の履歴
+     st.session_state["detail_history"] = []
 
  # --------------------------------------------------
  # Pinecone 初期化 & VectorStore 準備
@@ -141,9 +143,9 @@ def main():
      uploaded_content = uploaded_file.read()
      try:
          loaded_json = json.loads(uploaded_content)
-         # 復元（今回は要約・詳細に分割せず、まとめて一括復元する場合）
+         # 以前保存したJSONを復元（メタ情報も一緒に復元）
          st.session_state["summary_history"] = loaded_json.get("summary_history", [])
-         st.session_state["detail_history"] = loaded_json.get("detail_history", [])
+         st.session_state["detail_history"]  = loaded_json.get("detail_history", [])
          st.success("以前の会話履歴を復元しました！")
      except Exception as e:
          st.error(f"アップロードに失敗しました: {e}")
@@ -195,7 +197,6 @@ def main():
  # ワークフローのURLを後付する処理 (旧コードから流用)
  # --------------------------------------------------
  def post_process_answer(user_question: str, raw_answer: str) -> str:
-     # "ワークフロー" のキーワードがあり、"仮払い" が無い場合など、好きに条件追加可能
      if ("ワークフロー" in user_question) and ("仮払い" not in user_question):
          if WORKFLOW_OVERVIEW_URL not in raw_answer:
              raw_answer += (
@@ -205,7 +206,7 @@ def main():
      return raw_answer
 
  # --------------------------------------------------
- # チェーンを実行する関数 （概要 / 詳細)
+ # チェーンを実行する関数 （概要 / 詳細）
  # --------------------------------------------------
  def run_summary_chain(query_text: str):
      retriever = get_summary_retriever()
@@ -215,7 +216,6 @@ def main():
          return_source_documents=True,
          combine_docs_chain_kwargs={"prompt": custom_prompt}
      )
-     # 要約モードでは、履歴を st.session_state["summary_history"] に格納 (が、実際あまり使わない)
      result = chain({"question": query_text, "chat_history": []})
      answer = post_process_answer(query_text, result["answer"])
      src_docs = result.get("source_documents", [])
@@ -248,10 +248,16 @@ def main():
      do_summary = st.form_submit_button("送信 (概要検索)")
      if do_summary and summary_question.strip():
          with st.spinner("回答（概要）を作成中..."):
-           answer, meta = run_summary_chain(summary_question)
+             answer, meta = run_summary_chain(summary_question)
 
-         # 履歴に保存
-         st.session_state["summary_history"].append((summary_question, answer))
+         # -----------------------------
+         # 履歴に保存する際、メタ情報も一緒に保存
+         # -----------------------------
+         st.session_state["summary_history"].append({
+             "question": summary_question,
+             "answer": answer,
+             "meta": meta  # ←追加
+         })
 
          st.markdown("### 回答（概要）")
          st.write(answer)
@@ -273,10 +279,16 @@ def main():
      do_detail = st.form_submit_button("送信 (詳細検索)")
      if do_detail and detail_question.strip():
          with st.spinner("回答（詳細）を作成中..."):
-           detail_answer, detail_meta = run_detail_chain(detail_question)
+             detail_answer, detail_meta = run_detail_chain(detail_question)
 
-         # 履歴に保存
-         st.session_state["detail_history"].append((detail_question, detail_answer))
+         # -----------------------------
+         # 履歴に保存する際、メタ情報も一緒に保存
+         # -----------------------------
+         st.session_state["detail_history"].append({
+             "question": detail_question,
+             "answer": detail_answer,
+             "meta": detail_meta  # ←追加
+         })
 
          st.markdown("### 詳細な回答")
          st.write(detail_answer)
@@ -304,13 +316,48 @@ def main():
  st.write("## 会話履歴（概要・詳細）を確認")
  if st.checkbox("表示する"):
      st.subheader("=== 概要のQ&A ===")
-     for i, (q, a) in enumerate(st.session_state["summary_history"], start=1):
-         # "---"を削除 or 別のものに
+     for i, item in enumerate(st.session_state["summary_history"], start=1):
+         q = item["question"]
+         a = item["answer"]
+         meta_list = item.get("meta", [])
+
          st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}")
 
+         # ここで履歴に含まれる「メタ情報（参照すべきガイド）」を表示する
+         if meta_list:
+             st.write("#### 参照すべき設定ガイド:")
+             for m in meta_list:
+                 doc_name   = m.get("DocName", "")
+                 guide_name = m.get("GuideNameJp", "")
+                 link       = m.get("FullLink", "")
+                 st.markdown(f"- **DocName**: {doc_name}")
+                 st.markdown(f"  **GuideNameJp**: {guide_name}")
+                 st.markdown(f"  **FullLink**: {link}")
+         st.write("---")
+
      st.subheader("=== 詳細のQ&A ===")
-     for i, (q, a) in enumerate(st.session_state["detail_history"], start=1):
+     for i, item in enumerate(st.session_state["detail_history"], start=1):
+         q = item["question"]
+         a = item["answer"]
+         meta_list = item.get("meta", [])
+
          st.markdown(f"**Q{i}**: {q}\n\n**A{i}**: {a}")
+
+         # ここも同様にメタ情報を表示する
+         if meta_list:
+             st.write("#### 参照すべき設定ガイド:")
+             for m in meta_list:
+                 doc_name   = m.get("DocName", "")
+                 guide_name = m.get("GuideNameJp", "")
+                 sec1       = m.get("SectionTitle1", "")
+                 sec2       = m.get("SectionTitle2", "")
+                 link       = m.get("FullLink", "")
+                 st.markdown(f"- **DocName**: {doc_name}")
+                 st.markdown(f"  **GuideNameJp**: {guide_name}")
+                 st.markdown(f"  **SectionTitle1**: {sec1}")
+                 st.markdown(f"  **SectionTitle2**: {sec2}")
+                 st.markdown(f"  **FullLink**: {link}")
+         st.write("---")
 
 if __name__ == "__main__":
  main()
