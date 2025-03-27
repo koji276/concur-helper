@@ -6,12 +6,14 @@ from dotenv import load_dotenv
 from pinecone import Pinecone
 from datetime import datetime
 
-# LangChain ライブラリ
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
+
+# --- ページをワイドに設定 ---
+st.set_page_config(layout="wide")
 
 load_dotenv()
 
@@ -23,12 +25,12 @@ PINECONE_API_KEY     = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
 # --------------------------------------------------
-# インデックスの定義
+# インデックス・ガイド設定
 # --------------------------------------------------
-SUMMARY_INDEX_NAME = "concur-index2"  # 要約
+SUMMARY_INDEX_NAME = "concur-index2"  
 SUMMARY_NAMESPACE  = "demo-html"
 
-FULL_INDEX_NAME = "concur-index"      # フル
+FULL_INDEX_NAME = "concur-index"      
 FULL_NAMESPACE  = "demo-html"
 
 WORKFLOW_GUIDES = [
@@ -74,7 +76,7 @@ def main():
         st.session_state["detail_history"] = []
 
     # --------------------------------------------------
-    # Pinecone 初期化 & VectorStore 準備
+    # Pinecone 初期化 & VectorStore
     # --------------------------------------------------
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
@@ -183,6 +185,9 @@ def main():
                 )
         return raw_answer
 
+    # --------------------------------------------------
+    # チェーン実行
+    # --------------------------------------------------
     def run_summary_chain(query_text: str):
         retriever = get_summary_retriever()
         chain = ConversationalRetrievalChain.from_llm(
@@ -212,16 +217,17 @@ def main():
         return answer, meta_list
 
     # --------------------------------------------------
-    # ここで左右に分割：columnsを使用
+    # 左右に分割: columns
     # --------------------------------------------------
-    col_left, col_right = st.columns([2, 3])  # [左の幅, 右の幅]の比
+    # 例: 左カラムの幅を 1、右カラムの幅を 2 とする (お好みで変更可)
+    col_left, col_right = st.columns([1, 2])
 
-    # --------------------
-    # 左カラム: Step1～3 (フォーム入力系)
-    # --------------------
+    # -------------------------
+    # 左カラム: 入力フォームなど
+    # -------------------------
     with col_left:
         st.markdown("## Step1: 概要検索")
-        st.write("大まかな質問をしてください。回答後、必要箇所をコピーして詳細検索へ。")
+        st.write("大まかな質問を入力してください。回答後、必要な箇所をコピーして下の詳細検索に。")
 
         with st.form(key="summary_form"):
             summary_question = st.text_input("例: 『勘定科目コードの概要』『元帳の作業手順』『ワークフローの設定』")
@@ -249,10 +255,10 @@ def main():
                 st.write("---")
 
         st.markdown("## Step2: 詳細検索")
-        st.info("上の回答から詳しく知りたい部分(パラグラフなど)をコピーして下に貼り付けてください。")
+        st.info("上の回答から詳しく知りたい部分をコピーして下に貼り付け、詳細検索してください。")
 
         with st.form(key="detail_form"):
-            detail_question = st.text_area("さらに詳しく知りたい部分をコピペして検索", height=100)
+            detail_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100)
             do_detail = st.form_submit_button("送信 (詳細検索)")
             if do_detail and detail_question.strip():
                 with st.spinner("回答（詳細）を作成中..."):
@@ -281,16 +287,15 @@ def main():
                 st.write("---")
 
         st.markdown("## Step3: 設定ガイド検索")
-        st.info("上記リンク先をクリックすると、関連情報や開発設定画面などを参照できます。")
+        st.info("上記のリンク先をクリックすると、関連情報や開発設定画面などが参照できます。")
 
-    # --------------------
+    # -------------------------
     # 右カラム: 会話履歴表示
-    # --------------------
+    # -------------------------
     with col_right:
         st.markdown("## 会話履歴（概要・詳細）")
-        st.write("フォームで検索したQ&Aの履歴です。")
+        st.write("これまでのQ&Aの履歴")
 
-        # チェックボックスで履歴を表示するかどうかを切り替え
         if st.checkbox("履歴を表示する"):
             st.subheader("=== 概要のQ&A ===")
             for i, item in enumerate(st.session_state["summary_history"], start=1):
@@ -336,8 +341,5 @@ def main():
                         st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
-
 if __name__ == "__main__":
     main()
-
-
