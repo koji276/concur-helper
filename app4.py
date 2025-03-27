@@ -6,31 +6,26 @@ from dotenv import load_dotenv
 from pinecone import Pinecone
 from datetime import datetime
 
+# LangChain ライブラリ
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 
-# --- ページをワイドに設定 ---
+# 1) ページをワイド表示に設定
 st.set_page_config(layout="wide")
 
 load_dotenv()
 
-# --------------------------------------------------
-# APIキー・環境変数を読み込み
-# --------------------------------------------------
 OPENAI_API_KEY       = os.getenv("OPENAI_API_KEY", "")
 PINECONE_API_KEY     = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
-# --------------------------------------------------
-# インデックス・ガイド設定
-# --------------------------------------------------
-SUMMARY_INDEX_NAME = "concur-index2"  
+SUMMARY_INDEX_NAME = "concur-index2"
 SUMMARY_NAMESPACE  = "demo-html"
 
-FULL_INDEX_NAME = "concur-index"      
+FULL_INDEX_NAME = "concur-index"
 FULL_NAMESPACE  = "demo-html"
 
 WORKFLOW_GUIDES = [
@@ -63,6 +58,7 @@ custom_prompt = PromptTemplate(
     template=CUSTOM_PROMPT_TEMPLATE,
     input_variables=["context", "question"]
 )
+
 
 def main():
     st.title("Concur Helper - 開発者支援ボット")
@@ -217,17 +213,41 @@ def main():
         return answer, meta_list
 
     # --------------------------------------------------
-    # 左右に分割: columns
+    # 2) columns で左右分割
     # --------------------------------------------------
-    # 例: 左カラムの幅を 1、右カラムの幅を 2 とする (お好みで変更可)
-    col_left, col_right = st.columns([1, 2])
+    col_left, col_right = st.columns([1, 2])  # 左:右 = 1:2（好みで調整）
 
-    # -------------------------
-    # 左カラム: 入力フォームなど
-    # -------------------------
+    # --------------------------------------------------
+    # 3) CSS で各カラムに別スクロールを付与
+    # --------------------------------------------------
+    # 以下のように2つのクラス (.left-column, .right-column) を定義し、
+    # max-height & overflow-y: auto でスクロールさせます
+    st.markdown(
+        """
+        <style>
+        .left-column {
+            max-height: 90vh;      /* 画面の90%など、自由に調整 */
+            overflow-y: auto;      /* 縦スクロールを表示 */
+            padding-right: 1rem;   /* 右側に少し余白 */
+        }
+        .right-column {
+            max-height: 90vh; 
+            overflow-y: auto;
+        }
+        /* スクロールバーの見た目調整なども可能 (お好みで) */
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # --------------------------------------------------
+    # 左カラム: フォームなど (Step1～3)
+    # --------------------------------------------------
     with col_left:
-        st.markdown("## Step1: 概要検索")
-        st.write("大まかな質問を入力してください。回答後、必要な箇所をコピーして下の詳細検索に。")
+        st.markdown('<div class="left-column">', unsafe_allow_html=True)
+
+        st.subheader("Step1: 概要検索")
+        st.write("概要レベルの質問を入力します。回答後、必要部分をコピーして詳細検索へ。")
 
         with st.form(key="summary_form"):
             summary_question = st.text_input("例: 『勘定科目コードの概要』『元帳の作業手順』『ワークフローの設定』")
@@ -254,11 +274,11 @@ def main():
                     st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
-        st.markdown("## Step2: 詳細検索")
-        st.info("上の回答から詳しく知りたい部分をコピーして下に貼り付け、詳細検索してください。")
+        st.subheader("Step2: 詳細検索")
+        st.info("上記回答から詳しく知りたい部分をコピーして下に貼り付け、より深い回答を得ます。")
 
         with st.form(key="detail_form"):
-            detail_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100)
+            detail_question = st.text_area("さらに詳しく知りたい部分をコピペして検索", height=120)
             do_detail = st.form_submit_button("送信 (詳細検索)")
             if do_detail and detail_question.strip():
                 with st.spinner("回答（詳細）を作成中..."):
@@ -286,18 +306,23 @@ def main():
                     st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
-        st.markdown("## Step3: 設定ガイド検索")
-        st.info("上記のリンク先をクリックすると、関連情報や開発設定画面などが参照できます。")
+        st.subheader("Step3: 設定ガイド検索")
+        st.info("上記のリンク先をクリックすると、関連情報・開発設定画面などを参照できます。")
 
-    # -------------------------
+        st.markdown('</div>', unsafe_allow_html=True)  # left-column 終了
+
+    # --------------------------------------------------
     # 右カラム: 会話履歴表示
-    # -------------------------
+    # --------------------------------------------------
     with col_right:
-        st.markdown("## 会話履歴（概要・詳細）")
-        st.write("これまでのQ&Aの履歴")
+        st.markdown('<div class="right-column">', unsafe_allow_html=True)
 
+        st.subheader("会話履歴（概要・詳細）")
+        st.write("これまでのQ&A一覧")
+
+        # オプション: 履歴の開閉
         if st.checkbox("履歴を表示する"):
-            st.subheader("=== 概要のQ&A ===")
+            st.markdown("### 概要のQ&A")
             for i, item in enumerate(st.session_state["summary_history"], start=1):
                 q = item["question"]
                 a = item["answer"]
@@ -317,7 +342,7 @@ def main():
                         st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
-            st.subheader("=== 詳細のQ&A ===")
+            st.markdown("### 詳細のQ&A")
             for i, item in enumerate(st.session_state["detail_history"], start=1):
                 q = item["question"]
                 a = item["answer"]
@@ -341,5 +366,8 @@ def main():
                         st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
+        st.markdown('</div>', unsafe_allow_html=True)  # right-column 終了
+
 if __name__ == "__main__":
     main()
+
