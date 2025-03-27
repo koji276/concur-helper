@@ -241,10 +241,10 @@ def main():
  # --------------------------------------------------
 
  st.markdown("## Step1: 概要検索")
- st.write("最初に大まかな質問をしてください。回答後、より詳しく知りたい箇所をコピーして下に貼り付けると詳細検索できます。")
+ st.write("最初に大まかな質問をしてください。キーワードなど。回答後、より詳しく知りたい箇所をコピーして下に貼り付けると詳細検索できます。")
 
  with st.form(key="summary_form"):
-     summary_question = st.text_input("例: 『勘定科目コードとは何ですか？』")
+     summary_question = st.text_input("例: 『勘定科目コードの概要』『元帳の作業手順』『ワークフローの設定』")
      do_summary = st.form_submit_button("送信 (概要検索)")
      if do_summary and summary_question.strip():
          with st.spinner("回答（概要）を作成中..."):
