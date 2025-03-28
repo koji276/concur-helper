@@ -77,6 +77,8 @@ def main():
         st.session_state["summary_history"] = []
     if "detail_history" not in st.session_state:
         st.session_state["detail_history"] = []
+    if "faq_history" not in st.session_state:
+        st.session_state["faq_history"] = []
 
     # --------------------------------------------------
     # Pinecone 初期化 & VectorStore
