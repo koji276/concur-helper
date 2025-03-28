@@ -304,7 +304,7 @@ def main():
         st.info("上の回答から詳しく知りたい部分をコピーして下に貼り付け、FAQ検索してください。")
 
         with st.form(key="faq_form"):
-            detail_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100, key="faq_question_text"))
+            detail_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100, key="faq_question_text")
             do_detail = st.form_submit_button("送信 (FAQ検索)")
             if do_detail and detail_question.strip():
                 with st.spinner("回答（FAQ）を作成中..."):
